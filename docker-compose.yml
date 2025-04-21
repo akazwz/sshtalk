@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  ssh-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sshtalk-ssh
+    restart: unless-stopped
+    ports:
+      - "22:22"
+    env_file:
+      - .env
+    volumes:
+      - ./.ssh:/app/.ssh
+    networks:
+      - sshtalk-network
+
+  # 可选：添加反向代理，如Nginx或Traefik来保护SSH服务
+  # traefik:
+  #   image: traefik:v2.9
+  #   command:
+  #     - "--providers.docker=true"
+  #     - "--providers.docker.exposedbydefault=false"
+  #     - "--entrypoints.ssh.address=:2222"
+  #   ports:
+  #     - "2222:2222"
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock:ro
+  #   networks:
+  #     - sshtalk-network
+
+networks:
+  sshtalk-network:
+    driver: bridge 
