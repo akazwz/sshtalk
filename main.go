@@ -18,8 +18,13 @@ import (
 	"github.com/openai/openai-go/packages/ssestream"
 )
 
-const gap = "\n\n"
-const thinkingText = "Thinking" // 提取为常量
+const (
+	thinkingText = "Thinking" // 提取为常量
+	gap          = "\n\n"
+	systemPrompt = `Do not use markdown except when user asks for it.`
+	welcomeMsg   = `Welcome to sshtalk!
+	Type a message and press Enter to send.`
+)
 
 var (
 	openaiBaseURL = os.Getenv("OPENAI_BASE_URL")
@@ -80,6 +85,16 @@ type model struct {
 	err           error
 	program       *tea.Program // 添加程序引用
 	lastMsgDone   bool         // 最后一条消息是否完成
+	// 新增的样式对象
+	userMsgStyle   lipgloss.Style
+	userAlignStyle lipgloss.Style
+	botMsgStyle    lipgloss.Style
+	welcomeStyle   lipgloss.Style
+
+	// 渲染缓存相关
+	lastViewportWidth int    // 上次渲染时的视口宽度
+	lastSpinnerFrame  string // 上次渲染时的spinner帧
+	needsReformat     bool   // 是否需要重新格式化
 }
 
 func initialModel() model {
@@ -98,22 +113,15 @@ func initialModel() model {
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
 
 	// Add border to textarea
-	ta.FocusedStyle.Base = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("69"))
-	ta.BlurredStyle.Base = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("240"))
+	ta.FocusedStyle.Base = lipgloss.NewStyle().Border(lipgloss.RoundedBorder())
+	ta.BlurredStyle.Base = lipgloss.NewStyle().Border(lipgloss.RoundedBorder())
 
 	ta.ShowLineNumbers = false
 
 	// Create a viewport that will be properly sized in the first Update
 	vp := viewport.New(0, 0)
 	vp.Style = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62"))
-
-	welcomeMsg := `Welcome to sshtalk!
-Type a message and press Enter to send.`
-
+		Border(lipgloss.RoundedBorder())
 	// 注意：此时viewport尺寸还是0x0，实际的垂直居中会在第一次Update时处理
 	vp.SetContent(lipgloss.NewStyle().Align(lipgloss.Center).Render(welcomeMsg))
 
@@ -122,22 +130,48 @@ Type a message and press Enter to send.`
 	// 初始化 spinner，使用Dot样式
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(false) // 使用柔和的蓝色
+
+	// 预先创建样式对象
+	userMsgStyle := lipgloss.NewStyle().
+		Padding(0, 1).
+		BorderStyle(lipgloss.RoundedBorder())
+
+	rightAlignStyle := lipgloss.NewStyle().
+		Align(lipgloss.Right).
+		PaddingRight(1)
+
+	botMsgStyle := lipgloss.NewStyle().
+		Align(lipgloss.Left).
+		PaddingLeft(1)
+
+	welcomeStyle := lipgloss.NewStyle().
+		Align(lipgloss.Center)
 
 	return model{
-		openaiClient:  openaiClient,
-		textarea:      ta,
-		messages:      []string{},
-		rawMessages:   []message{},
-		chatHistory:   []openai.ChatCompletionMessageParamUnion{},
-		viewport:      vp,
-		senderStyle:   lipgloss.NewStyle().Foreground(lipgloss.Color("5")),
-		receiverStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("2")),
-		spinner:       s,
-		isWaiting:     false,
-		err:           nil,
-		program:       nil,
-		lastMsgDone:   true, // 初始状态为完成
+		openaiClient: openaiClient,
+		textarea:     ta,
+		messages:     []string{},
+		rawMessages:  []message{},
+		chatHistory: []openai.ChatCompletionMessageParamUnion{
+			openai.SystemMessage(systemPrompt),
+		},
+		viewport:       vp,
+		senderStyle:    lipgloss.NewStyle(),
+		receiverStyle:  lipgloss.NewStyle(),
+		spinner:        s,
+		isWaiting:      false,
+		err:            nil,
+		program:        nil,
+		lastMsgDone:    true, // 初始状态为完成
+		userMsgStyle:   userMsgStyle,
+		userAlignStyle: rightAlignStyle,
+		botMsgStyle:    botMsgStyle,
+		welcomeStyle:   welcomeStyle,
+
+		// 初始化渲染缓存相关字段
+		lastViewportWidth: 0,
+		lastSpinnerFrame:  "",
+		needsReformat:     true,
 	}
 }
 
@@ -167,15 +201,22 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.textarea.SetWidth(msg.Width)
 		m.viewport.Height = msg.Height - m.textarea.Height() - lipgloss.Height(gap)
 
+		// 窗口大小变化，标记需要重新格式化
+		if m.lastViewportWidth != m.viewport.Width {
+			m.lastViewportWidth = m.viewport.Width
+			m.needsReformat = true
+		}
+
 		if len(m.rawMessages) > 0 {
 			// 窗口大小变化，重新格式化所有消息
-			m.formatMessages()
+			if m.needsReformat {
+				m.formatMessages()
+				m.needsReformat = false
+			}
 			m.viewport.GotoBottom()
 		} else {
 			// 只有欢迎消息居中显示
-			welcomeMsg := `Welcome to the chat room!
-Type a message and press Enter to send.`
-
+			welcomeMsg := welcomeMsg
 			// 计算垂直居中所需的空行数
 			msgLines := strings.Count(welcomeMsg, "\n") + 1
 			padLines := (m.viewport.Height - msgLines) / 2
@@ -184,7 +225,8 @@ Type a message and press Enter to send.`
 				welcomeMsg = vertPadding + welcomeMsg
 			}
 
-			contentStyle := lipgloss.NewStyle().Width(m.viewport.Width).Align(lipgloss.Center)
+			contentStyle := m.welcomeStyle
+			contentStyle = contentStyle.Width(m.viewport.Width)
 			m.viewport.SetContent(contentStyle.Render(welcomeMsg))
 		}
 	case tea.KeyMsg:
@@ -202,13 +244,17 @@ Type a message and press Enter to send.`
 				// 添加到聊天历史
 				m.chatHistory = append(m.chatHistory, openai.UserMessage(userMsg))
 
+				// 标记需要重新格式化
+				m.needsReformat = true
+
 				// 先展示用户消息
 				m.formatMessages()
 				m.viewport.GotoBottom()
 
 				// 添加一个加载中的消息
 				m.isWaiting = true
-				m.rawMessages = append(m.rawMessages, message{content: fmt.Sprintf("%s %s", thinkingText, m.spinner.View()), fromUser: false})
+				m.rawMessages = append(m.rawMessages, message{content: fmt.Sprintf("%s", thinkingText), fromUser: false})
+				m.needsReformat = true
 				m.formatMessages()
 				m.viewport.GotoBottom()
 
@@ -255,6 +301,9 @@ Type a message and press Enter to send.`
 			return m, nil
 		}
 
+		// 标记需要重新格式化
+		m.needsReformat = true
+
 		// 移除加载中的消息
 		if m.isWaiting && len(m.rawMessages) > 0 {
 			// 移除最后一条"思考中"的消息
@@ -295,6 +344,7 @@ Type a message and press Enter to send.`
 
 		// 重新格式化并滚动到底部
 		m.formatMessages()
+		m.needsReformat = false
 		m.viewport.GotoBottom()
 
 		// 如果有下一个命令，继续执行
@@ -309,9 +359,16 @@ Type a message and press Enter to send.`
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 
-		// 如果正在等待，重新渲染带有更新spinner的消息
-		if m.isWaiting && len(m.rawMessages) > 0 {
+		// 检查spinner外观是否变化
+		currentFrame := m.spinner.View()
+		spinnerChanged := m.lastSpinnerFrame != currentFrame
+		m.lastSpinnerFrame = currentFrame
+
+		// 如果正在等待且spinner变化，重新渲染
+		if m.isWaiting && len(m.rawMessages) > 0 && spinnerChanged {
+			m.needsReformat = true
 			m.formatMessages()
+			m.needsReformat = false
 		}
 
 		return m, cmd
@@ -330,6 +387,11 @@ func (m *model) View() string {
 }
 
 func (m *model) formatMessages() {
+	// 如果不需要重新格式化，跳过
+	if !m.needsReformat && len(m.messages) > 0 {
+		return
+	}
+
 	m.messages = []string{}
 
 	if len(m.rawMessages) == 0 {
@@ -339,6 +401,16 @@ func (m *model) formatMessages() {
 	maxWidth := m.viewport.Width
 	msgWidth := maxWidth * 3 / 4
 	marginWidth := 1 // 减小边距到1个字符
+
+	// 根据当前窗口大小更新样式的宽度属性
+	userMsgStyle := m.userMsgStyle
+	userMsgStyle = userMsgStyle.Width(msgWidth)
+
+	userAlignStyle := m.userAlignStyle
+	userAlignStyle = userAlignStyle.Width(maxWidth - marginWidth)
+
+	botMsgStyle := m.botMsgStyle
+	botMsgStyle = botMsgStyle.Width(msgWidth + marginWidth)
 
 	for i, msg := range m.rawMessages {
 		isLastMsg := i == len(m.rawMessages)-1
@@ -355,36 +427,11 @@ func (m *model) formatMessages() {
 		}
 
 		if msg.fromUser {
-			// 用户消息样式（右侧）
-			userStyle := lipgloss.NewStyle().
-				Width(msgWidth).
-				Foreground(lipgloss.Color("255")).
-				Background(lipgloss.Color("57")).
-				Padding(0, 1).
-				BorderStyle(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("57"))
-
-			rightAlignStyle := lipgloss.NewStyle().
-				Width(maxWidth - marginWidth).
-				Align(lipgloss.Right).
-				PaddingRight(marginWidth)
-
-			m.messages = append(m.messages, rightAlignStyle.Render(userStyle.Render(displayContent)))
+			// 用户消息样式（右侧）- 使用预创建的样式
+			m.messages = append(m.messages, userAlignStyle.Render(userMsgStyle.Render(displayContent)))
 		} else {
-			// 机器人消息样式（左侧）
-			botContent := displayContent
-
-			// 用于左对齐的样式
-			leftAlignStyle := lipgloss.NewStyle().
-				Width(msgWidth + marginWidth). // 仅使用消息宽度加上边距
-				Align(lipgloss.Left).
-				PaddingLeft(marginWidth)
-
-			// 将结果包装到左侧
-			renderedContent := leftAlignStyle.Render(botContent)
-
-			// 添加到消息列表
-			m.messages = append(m.messages, renderedContent)
+			// 机器人消息样式（左侧）- 使用预创建的样式
+			m.messages = append(m.messages, botMsgStyle.Render(displayContent))
 		}
 
 		// 添加空行分隔消息
