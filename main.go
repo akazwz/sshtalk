@@ -134,7 +134,8 @@ func initialModel() model {
 	// 预先创建样式对象
 	userMsgStyle := lipgloss.NewStyle().
 		Padding(0, 1).
-		BorderStyle(lipgloss.RoundedBorder())
+		BorderStyle(lipgloss.RoundedBorder()).
+		Align(lipgloss.Right)
 
 	rightAlignStyle := lipgloss.NewStyle().
 		Align(lipgloss.Right).
@@ -427,8 +428,17 @@ func (m *model) formatMessages() {
 		}
 
 		if msg.fromUser {
-			// 用户消息样式（右侧）- 使用预创建的样式
-			m.messages = append(m.messages, userAlignStyle.Render(userMsgStyle.Render(displayContent)))
+			// 用户消息样式（右侧）
+			// 先渲染内容，不设置固定宽度
+			contentStyle := lipgloss.NewStyle().
+				Padding(0, 1).
+				BorderStyle(lipgloss.RoundedBorder()).
+				Align(lipgloss.Right).
+				MaxWidth(msgWidth)
+
+			// 渲染用户消息并右对齐
+			formattedMsg := contentStyle.Render(displayContent)
+			m.messages = append(m.messages, userAlignStyle.Render(formattedMsg))
 		} else {
 			// 机器人消息样式（左侧）- 使用预创建的样式
 			m.messages = append(m.messages, botMsgStyle.Render(displayContent))
