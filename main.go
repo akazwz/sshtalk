@@ -238,6 +238,21 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEnter:
 			userMsg := m.textarea.Value()
 			if userMsg != "" && !m.isWaiting {
+				// 检查是否是清空历史的命令
+				if userMsg == "/clear" {
+					// 清空所有消息记录，只保留系统提示
+					m.rawMessages = []message{}
+					m.messages = []string{}
+					m.chatHistory = []openai.ChatCompletionMessageParamUnion{
+						openai.SystemMessage(systemPrompt),
+					}
+
+					// 重设视图
+					m.viewport.SetContent(m.welcomeStyle.Render(welcomeMsg))
+					m.textarea.Reset()
+					return m, nil
+				}
+
 				// 添加用户原始消息到列表
 				userContent := userMsg
 				m.rawMessages = append(m.rawMessages, message{content: userContent, fromUser: true})
