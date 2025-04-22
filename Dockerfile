@@ -25,15 +25,9 @@ RUN apk add --no-cache ca-certificates
 
 # 从构建阶段复制编译好的应用
 COPY --from=builder /app/sshtalk /app/
+
 # 创建.ssh目录
-RUN mkdir -p /app/.ssh
-
-# 复制SSH密钥(如果存在)
-COPY .ssh/ /app/.ssh/
-
-# 确保SSH目录权限正确
-RUN chmod 700 /app/.ssh && \
-    if [ -f /app/.ssh/id_ed25519 ]; then chmod 600 /app/.ssh/id_ed25519; fi
+RUN mkdir -p /app/.ssh && chmod 700 /app/.ssh
 
 # 暴露SSH服务端口
 EXPOSE $SSH_PORT
