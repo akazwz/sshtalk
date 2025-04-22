@@ -9,10 +9,31 @@ services:
       - "22:22"
     env_file:
       - .env
+    environment:
+      - PORT=22
     volumes:
       - ./.ssh:/app/.ssh
     networks:
       - sshtalk-network
+    command:
+      - ssh
+  
+  http-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sshtalk-http
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      - PORT=8080
+    networks:
+      - sshtalk-network
+    command:
+      - http
 
   # 可选：添加反向代理，如Nginx或Traefik来保护SSH服务
   # traefik:

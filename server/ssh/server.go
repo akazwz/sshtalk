@@ -1,4 +1,4 @@
-package main
+package ssh
 
 import (
 	"context"
@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 
+	"sshtalk/ui"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/ssh"
 	"github.com/charmbracelet/wish"
@@ -17,15 +19,11 @@ import (
 	"github.com/charmbracelet/wish/logging"
 )
 
-func startSSHServer() {
-	// Define address and port for SSH server
-	sshPort := os.Getenv("SSH_PORT")
-	if sshPort == "" {
-		sshPort = "2222"
-	}
+// Start 启动SSH服务器
+func Start() {
 	// Setup SSH server
 	s, err := wish.NewServer(
-		wish.WithAddress(fmt.Sprintf(":%s", sshPort)),
+		wish.WithAddress(fmt.Sprintf(":%s", os.Getenv("PORT"))),
 		wish.WithHostKeyPath(".ssh/id_ed25519"),
 		wish.WithMiddleware(
 			bubbletea.Middleware(teaHandler),
@@ -66,7 +64,7 @@ func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 		return nil, nil
 	}
 
-	m := initialModel()
+	m := ui.NewModel()
 
 	return &m, []tea.ProgramOption{
 		tea.WithAltScreen(),

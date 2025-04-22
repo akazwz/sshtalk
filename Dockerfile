@@ -29,8 +29,6 @@ COPY --from=builder /app/sshtalk /app/
 # 创建.ssh目录
 RUN mkdir -p /app/.ssh && chmod 700 /app/.ssh
 
-# 暴露SSH服务端口
-EXPOSE $SSH_PORT
+EXPOSE $PORT
 
-# 以SSH服务器模式运行应用
-CMD ["/app/sshtalk", "-ssh"] 
+ENTRYPOINT ["/app/sshtalk"]
