@@ -247,8 +247,20 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						openai.SystemMessage(systemPrompt),
 					}
 
-					// 重设视图
-					m.viewport.SetContent(m.welcomeStyle.Render(welcomeMsg))
+					// 重设视图，确保欢迎消息居中
+					welcomeMsg := welcomeMsg
+					// 计算垂直居中所需的空行数
+					msgLines := strings.Count(welcomeMsg, "\n") + 1
+					padLines := (m.viewport.Height - msgLines) / 2
+					if padLines > 0 {
+						vertPadding := strings.Repeat("\n", padLines)
+						welcomeMsg = vertPadding + welcomeMsg
+					}
+
+					contentStyle := m.welcomeStyle
+					contentStyle = contentStyle.Width(m.viewport.Width)
+					m.viewport.SetContent(contentStyle.Render(welcomeMsg))
+
 					m.textarea.Reset()
 					return m, nil
 				}
